@@ -1,31 +1,61 @@
+######################### # # #
+###
+###	Addit - a quote database for eggdrop bots
+###
+###	Usage: load addit.tcl to your bot and add featured channel(s)
+###	from the bots partyline: .chanset #channel +addit
+###
+###	Public commands:
+###	!expl topic		- Display specific quote
+###	!rexpl [searchword]	- Display random quote, optional searchword can be included
+###	!add topic free text	- Add quote to database
+###	!ls searchword		- Search for topics using searchword
+###	!author topic		- Display quote author and date
+###	!db			- Display number of quotes in database
+###
+###	Version history:
+###	v0.1	First version
+###	v0.5	First rewrite after server and sourcecode went boom
+###	v0.6	Fixes to randomizer, added !rexpl searchword
+###	v0.7	Database now forced to UTF-8, fixed longstanding brainlessness of TCL strings vs lists (thx dogo)
+###
+###	2016 T-101 / Primitive ^ Darklite
+###
+###	Use with own risk. I take responsibility for absolutely nothing.
+###
+
 namespace eval ::add:: {
 
 setudef flag addit
 
-set addVersion v0.6
+set addVersion v0.7
 set addFile "definitions.db"
 
 bind pubm -|- "*" ::add::handler
 
+set reFileParse {(\S+)\s(\S+)\s(\S+)\s(.*)}
+
 proc handler { nick mask hand channel args } {
 	if {[channel get $channel addit] && [onchan $nick $channel]} {
-		set args [lindex $args 0]
-		switch -nocase [lindex [split $args] 0] {
-			"!add"		{ putquick "NOTICE $nick :[add [lindex [split $args] 1] $nick [lrange [split $args] 2 end]]"}
-			"!expl"		{ putquick "PRIVMSG $channel :[join [expl [lindex $args 1]]]" }
-			"!rexpl"	{ putquick "PRIVMSG $channel :[join [rexpl [lindex $args 1]]]" }
-			"!author"	{ putquick "PRIVMSG $channel :[join [author [lindex $args 1]]]" }
+		regexp {(\S+)\s?(.*)} [join $args] -> command params
+		if {![info exists command]} { putlog "nope"; return }
+		switch -nocase $command {
+			"!add"		{ putquick "NOTICE $nick :[add $nick $params]" }
+			"!expl"		{ putquick "PRIVMSG $channel :[expl [lindex $params 0]]" }
+			"!rexpl"	{ putquick "PRIVMSG $channel :[rexpl [lindex $params 0]]" }
+			"!author"	{ putquick "PRIVMSG $channel :[author [lindex $params 0]]" }
 			"!db"		{ putquick "PRIVMSG $channel :[db]" }
-			"!ls"		{ set results [ls [lindex $args 1]]; foreach item $results { putquick "NOTICE $nick :$item" } }
+			"!ls"		{ set results [ls [lindex $params 0]]; foreach item $results { putquick "NOTICE $nick :$item" } }
 		}
 	}
 }
 
 proc ls args {
 	if {[string length [join $args]]} {
+		variable reFileParse
 		set text [readAddFile]
 		# get titles
-		foreach item $text { lappend title [lindex $item 1] }
+		foreach item $text { lappend title [regsub $reFileParse $item {\2}] }
 		# get matches
 		foreach item $title { if {[regexp $args $item]} { lappend results $item } }
 		set counter 0
@@ -81,24 +111,26 @@ proc expl args {
 	if {![string length $args]} { return }
 	set text [readAddFile]
 	foreach item $text {
-		if {[string match -nocase $args [lindex $item 1]]} { return [output $item] }
+		if {[string match -nocase $args [regsub {(\S+)\s(\S+)\s(.*)} $item {\2}]]} { return [output $item] }
 	}
 }
 
 proc add args {
 	if {![string length $args]} { return }
-	if {![llength [expl [lindex [join $args] 0]]]} {
-		return [writeAddFile [join $args]]
+	regexp {(\S+)\s(\S+)\s(.*)} [join $args] -> nick topic add
+	if {![llength [expl $topic]]} {
+		return [writeAddFile $topic $nick $add]
 	} else {
-		return "'[lindex [join $args] 0]' already exists" }
+		return "'${topic}' already exists" }
 }
 
 proc author args {
 	if {![string length $args]} { return }
+	variable reFileParse
 	set text [readAddFile]
 	foreach item $text {
 		if {[regexp -nocase $args $item]} {
-			set addTime [lindex $item 0]; set addTitle [lindex $item 1]; set addNick [lindex $item 2]
+			regexp $reFileParse $item -> addTime addTitle addNick
 			return "'$addTitle' was added by $addNick at [clock format $addTime -format "%d %b %Y, %H:%M"]"
 }	}	}
 
@@ -107,14 +139,14 @@ proc db {} {
 	return "I have [llength $text] quotes in my database"
 }
 
-proc writeAddFile args {
-	if {![string length $args]} { return }
+proc writeAddFile {topic nick add} {
 	variable addFile
-	set text "[clock seconds] [lindex [join $args] 0] [lindex [join $args] 1] [lrange [join $args] 2 end]"
+	set text "[clock seconds] $topic $nick $add"
 	set fileHandler [open $addFile a]
+	fconfigure $fileHandler -encoding utf-8
 	puts $fileHandler $text
 	close $fileHandler
-	return "'[lindex [join $args] 0]' added"
+	return "'$topic' added"
 }
 
 proc readAddFile {} {
@@ -127,8 +159,8 @@ proc readAddFile {} {
 }
 
 proc output { args } {
-	set title [lindex [join $args] 1]
-	set quote [lrange [join $args] 3 end]
+	variable reFileParse
+	regexp $reFileParse [join $args] -> -> title -> quote
 	return "'$title': $quote"
 }
 
