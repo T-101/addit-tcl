@@ -15,8 +15,9 @@
 ###
 ###	Version history:
 ###	v0.1	First version
+###	v0.2	Added date to quotes
 ###	v0.5	First rewrite after server and sourcecode went boom
-###	v0.6	Fixes to randomizer, added !rexpl searchword
+###	v0.6	Fixes to randomizer, added !rexpl searchword, !rexpl now has a history to avoid dupes being displayed
 ###	v0.7	Database now forced to UTF-8, fixed longstanding brainlessness of TCL strings vs lists (thx dogo)
 ###
 ###	2016 T-101 / Primitive ^ Darklite
@@ -31,6 +32,12 @@ setudef flag addit
 set addVersion v0.7
 set addFile "definitions.db"
 
+if {![file exists $addFile]} {
+	set fh [open $addFile w]
+	close $fh
+	putlog "file $addFile created"
+}
+
 bind pubm -|- "*" ::add::handler
 
 set reFileParse {(\S+)\s(\S+)\s(\S+)\s(.*)}
@@ -38,7 +45,7 @@ set reFileParse {(\S+)\s(\S+)\s(\S+)\s(.*)}
 proc handler { nick mask hand channel args } {
 	if {[channel get $channel addit] && [onchan $nick $channel]} {
 		regexp {(\S+)\s?(.*)} [join $args] -> command params
-		if {![info exists command]} { putlog "nope"; return }
+		if {![info exists command]} { return }
 		switch -nocase $command {
 			"!add"		{ putquick "NOTICE $nick :[add $nick $params]" }
 			"!expl"		{ putquick "PRIVMSG $channel :[expl [lindex $params 0]]" }
